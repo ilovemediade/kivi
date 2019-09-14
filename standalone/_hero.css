@@ -1,0 +1,21 @@
+/* HERO */
+
+.section.hero {
+	width: 100%;
+	padding: 0;
+}
+.section.hero .group {
+	display: table;
+	height: 100%;
+	padding: 0;
+	margin: auto;
+}
+.section.hero .row {
+	display: table-cell;
+	width: 50%;
+	text-align: right;
+	vertical-align: middle;
+}
+.section.hero .row:first-child {
+	text-align: left;
+}

@@ -1,0 +1,87 @@
+/* BACKGROUND-COLORS */
+/*https://color.adobe.com/de/Copy-of-%EB%8B%A4%EC%9D%8C%EC%9D%98-%EB%B3%B5%EC%82%AC%EB%B3%B8-Copywriting-Produkt-01-color-theme-11985926/edit/?copy=true&base=2&rule=Custom&selected=3&name=Kopie%20von%20Copy%20of%20%EB%8B%A4%EC%9D%8C%EC%9D%98%20%EB%B3%B5%EC%82%AC%EB%B3%B8%20Copywriting%20Produkt%2001&mode=rgb&rgbvalues=0.2235294117647059,0.24313725490196078,0.27450980392156865,0,0.6784313725490196,0.7098039215686275,1,0.9568627450980393,0.8784313725490196,0.9725490196078431,0.7098039215686275,0,0.9882352941176471,0.23529411764705882,0.23529411764705882&swatchOrder=0,1,2,3,4*/
+
+
+.bgt { background-color: transparent; }
+
+.bg0 { background-color: #FFF4E0; }
+.bg1 { background-color: #393E46; }
+.bg2 { background-color: #00ADB5; }
+.bg3 { background-color: #FC3C3C; }
+.bg4 { background-color: #F8B500; }
+
+
+/* Size XL */ @media (max-width: 1600px) {
+
+    .bgt-xl { background-color: transparent; }
+
+    .bg0-xl { background-color: #FFF4E0; }
+    .bg1-xl { background-color: #393E46; }
+    .bg2-xl { background-color: #00ADB5; }
+    .bg3-xl { background-color: #FC3C3C; }
+    .bg4-xl { background-color: #F8B500; }
+}
+/* Size L */ @media (max-width: 1280px) {
+
+    .bgt-l { background-color: transparent; }
+
+    .bg0-l { background-color: #FFF4E0; }
+    .bg1-l { background-color: #393E46; }
+    .bg2-l { background-color: #00ADB5; }
+    .bg3-l { background-color: #FC3C3C; }
+    .bg4-l { background-color: #F8B500; }
+}
+/* Size M */ @media (max-width: 980px) {
+
+    .bgt-m { background-color: transparent; }
+
+    .bg0-m { background-color: #FFF4E0; }
+    .bg1-m { background-color: #393E46; }
+    .bg2-m { background-color: #00ADB5; }
+    .bg3-m { background-color: #FC3C3C; }
+    .bg4-m { background-color: #F8B500; }
+}
+/* Size S */ @media (max-width: 660px) {
+
+    .bgt-s { background-color: transparent; }
+
+    .bg0-s { background-color: #FFF4E0; }
+    .bg1-s { background-color: #393E46; }
+    .bg2-s { background-color: #00ADB5; }
+    .bg3-s { background-color: #FC3C3C; }
+    .bg4-s { background-color: #F8B500; }
+}
+
+/* TEXT-COLORS */
+
+.tc0 { color: #FFF4E0; }
+.tc1 { color: #393E46; }
+.tc2 { color: #00ADB5; }
+.tc3 { color: #FC3C3C; }
+.tc4 { color: #F8B500; }
+
+
+
+/* BUTTON-COLORS */
+
+.button.key { 
+	background-color: #FC3C3C;
+	border-color: #FC3C3C;
+	color: #FFF4E0;
+}
+.button.key:hover { 
+	background-color: transparent;
+	border-color: #FC3C3C;
+	color: #FC3C3C;
+}
+
+.button.ghost { 
+	background-color: transparent;
+	border-color: #00ADB5;
+	color: #00ADB5;
+}
+.button.ghost:hover { 
+	background-color: #00ADB5;
+	border-color: #00ADB5;
+	color: #FFF4E0;
+}

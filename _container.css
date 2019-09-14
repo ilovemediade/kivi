@@ -1,0 +1,41 @@
+/* CONTAINER OPTIONS */
+
+.section {
+    width: 100%;
+    padding: 60px 0px;
+    text-align: center;
+}
+.section .text:first-child {
+    display: inline-block;
+}
+.section .text{
+    height: auto;
+}
+  
+
+.group {
+    display: block;
+    padding: 40px 0px;
+}
+.group.table {
+    display: table;
+}
+
+
+.row {
+    width: 100%;
+    padding: 0px 0px;
+    margin: auto;
+    text-align: center;
+}
+.group.table .row {
+    display: table-cell;
+}
+
+
+.modul {
+    display: inline-block;
+    vertical-align: top;
+}
+  
+  

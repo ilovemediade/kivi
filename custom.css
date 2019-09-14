@@ -1,0 +1,14 @@
+@import url('https://fonts.googleapis.com/css?family=Open+Sans|Teko');
+
+div, a, p, li {
+	font-family: 'Open Sans', sans-serif;
+	font-weight: 400;
+	color: #393E46;
+}
+
+
+.subline {
+	font-family: 'Teko', sans-serif;
+	font-weight: 400;
+	color: #00ADB5;
+}
