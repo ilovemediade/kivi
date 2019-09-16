@@ -7,8 +7,10 @@ Add just this in you head-part und you have a powerful lightweight framework to 
 ```css
 <link href="https://min.gitcdn.link/repo/ilovemediade/kivi/master/core.css" rel="stylesheet">
 ```
-## HTML Skeleton
-```
+
+
+### HTML Skeleton
+```html
 <div id="" class="section">
     <div class="text">
         <div class="headline">Headline</div>
