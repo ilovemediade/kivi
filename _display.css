@@ -24,6 +24,18 @@
 
 
 
+
+
+/* FLEX */
+
+.flex-dir-row       { flex-direction: row; }
+.flex-dir-row-rev   { flex-direction: row-reverse; }
+.flex-dir-col       { flex-direction: column; }
+.flex-dir-col-rev   { flex-direction: column-reverse; }
+
+
+
+
 /* POSITIONS */
 
 .pos-inherit     { position: inherit; }
