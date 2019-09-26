@@ -108,7 +108,7 @@
 
 
 
-/* Size XL */ @media (max-width: 1600px) {
+/* Size XL */ @media (max-width: 1620px) {
 .wauto-xl       {   width: auto; }
 .w100-xl        {   width: 100%; }
 .w75-xl         {   width: 75%; }
