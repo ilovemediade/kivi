@@ -89,9 +89,9 @@
 
 
 
-/* Size XL */ @media (max-width: 1600px) {
-    .d-none-xl       { display: none; }
-    .d-inline-xl      { display: inline; }
+/* Size XL */ @media (max-width: 1620px) {
+    .d-none-xl          { display: none; }
+    .d-inline-xl        { display: inline; }
     .d-inline-block-xl  { display: inline-block; }
     .d-block-xl         { display: block; }
 
@@ -120,7 +120,7 @@
     .pos-relative-xl    { position: relative; }
     .pos-absolute-xl    { position: absolute; }
     .pos-sticky-xl      { position: sticky; }
-    .pos-fixed-xl      { position: fixed; }
+    .pos-fixed-xl       { position: fixed; }
 
 
 
