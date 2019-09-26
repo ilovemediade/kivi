@@ -71,14 +71,14 @@
 
 
 
-/* Size XL */ @media (max-width: 1600px) {
-    .mauto-xl      { margin: auto; }
+/* Size XL */ @media (max-width: 1620px) {
+    .mauto-xl       { margin: auto; }
     .mXXL-xl		{ margin: 140px; }
-    .mXL-xl		{ margin: 60px; }
+    .mXL-xl		    { margin: 60px; }
     .mL-xl		    { margin: 40px; }
     .mM-xl		    { margin: 20px; }
     .mS-xl		    { margin: 10px; }
-    .mXS-xl		{ margin: 5px; }
+    .mXS-xl		    { margin: 5px; }
     .m0-xl		    { margin: 0px; }
     
     
