@@ -69,7 +69,7 @@
 
 
 
-/* Size XL */ @media (max-width: 1600px) {
+/* Size XL */ @media (max-width: 1620px) {
     .pauto-xl      { padding: auto; }
     .pXXL-xl		{ padding: 140px; }
     .pXL-xl		{ padding: 60px; }
