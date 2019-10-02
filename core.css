@@ -28,7 +28,7 @@ img 	{ width: auto; max-width: 100%;	height: auto; max-height: 100%; }
 @import "_paddings.css";
 @import "_margins.css";
 @import "_display.css";
-@import "_typo.css";
+@import url("https://raw.githubusercontent.com/ilovemediade/kivi/master/_typo.css");
 @import "_colors.css";
 
 
