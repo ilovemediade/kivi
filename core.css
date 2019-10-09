@@ -1,17 +1,14 @@
 @charset "utf-8";
+
 @import "_reset.css";
 @import "_container.css";
 @import "_grid.css";
 @import "_paddings.css";
 @import "_margins.css";
 @import "_display.css";
-@import url("https://raw.githubusercontent.com/ilovemediade/kivi/master/_typo.css");
+@import "_typo.css";
 @import "_colors.css";
 
-
-@import "standalone/_hero.css";
-@import "standalone/_slider.css";
-@import "standalone/_iframe.css";
 
 @import "custom.css";
 
