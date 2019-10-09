@@ -1,28 +1,5 @@
 @charset "utf-8";
-
-/* CSS Document */
-* {
-  padding: 0px;
-  margin: 0px;
-}
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-html {
-    scroll-behavior: smooth;
-}
-html, body {
-  width: 100%;
-  height: 100%;
-}
-
-img 	{ width: auto; max-width: 100%;	height: auto; max-height: 100%; }
-.img 	{ display: block; width: 100%;	height: 100%; }
-
-
-
+@import "_reset.css";
 @import "_container.css";
 @import "_grid.css";
 @import "_paddings.css";
