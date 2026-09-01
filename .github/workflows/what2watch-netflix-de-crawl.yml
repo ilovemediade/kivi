@@ -1,0 +1,36 @@
+name: what2watch Netflix DE full crawl
+
+on:
+  push:
+    branches:
+      - what2watch-netflix-crawl
+    paths:
+      - '.github/scripts/netflix_de_crawl.py'
+      - '.github/workflows/what2watch-netflix-de-crawl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Crawl Netflix DE
+        run: python3 .github/scripts/netflix_de_crawl.py
+
+      - name: Upload crawl outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netflix-de-full-crawl
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
