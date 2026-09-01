@@ -24,7 +24,7 @@ query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $a
         ... on Movie {
           id objectType objectId
           content(country: $country, language: $language) {
-            title originalTitle originalReleaseYear runtime fullPath posterUrl backdropUrl
+            title originalTitle originalReleaseYear runtime fullPath posterUrl
           }
           offers(country: $country, platform: WEB) {
             monetizationType presentationType standardWebURL
@@ -34,7 +34,7 @@ query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $a
         ... on Show {
           id objectType objectId
           content(country: $country, language: $language) {
-            title originalTitle originalReleaseYear runtime fullPath posterUrl backdropUrl
+            title originalTitle originalReleaseYear runtime fullPath posterUrl
           }
           offers(country: $country, platform: WEB) {
             monetizationType presentationType standardWebURL
@@ -56,7 +56,7 @@ def post(payload, attempts=4):
             headers={
                 "content-type": "application/json",
                 "accept": "application/json",
-                "user-agent": "what2watch-netflix-de-catalog-audit/1.1",
+                "user-agent": "what2watch-netflix-de-catalog-audit/1.2",
                 "origin": "https://www.justwatch.com",
                 "referer": "https://www.justwatch.com/",
             },
@@ -118,7 +118,6 @@ def normalized(node):
         "runtime": content.get("runtime"),
         "full_path": content.get("fullPath"),
         "poster_url": content.get("posterUrl"),
-        "backdrop_url": content.get("backdropUrl"),
         "offers": matching,
         "verification": "verified" if matching else "rejected_no_exact_netflix_de_flatrate_offer",
     }
@@ -206,7 +205,6 @@ def main():
     report["movie_count"] = sum(1 for r in verified if str(r.get("object_type")).upper() == "MOVIE")
     report["show_count"] = sum(1 for r in verified if str(r.get("object_type")).upper() in {"SHOW", "TV_SHOW"})
     report["with_poster"] = sum(1 for r in verified if r.get("poster_url"))
-    report["with_backdrop"] = sum(1 for r in verified if r.get("backdrop_url"))
 
     (out_dir / "netflix-de-catalog.json").write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "netflix-de-crawl-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
