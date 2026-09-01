@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Trigger marker: workflow already exists on branch.
 import json
 import sys
 import time
@@ -19,15 +18,28 @@ query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $a
     totalCount
     pageInfo { hasNextPage endCursor }
     edges {
+      cursor
       node {
-        id objectType objectId
-        content(country: $country, language: $language) {
-          title originalTitle originalReleaseYear runtime fullPath posterUrl backdropUrl
-          externalIds { imdbId tmdbId }
+        __typename
+        ... on Movie {
+          id objectType objectId
+          content(country: $country, language: $language) {
+            title originalTitle originalReleaseYear runtime fullPath posterUrl backdropUrl
+          }
+          offers(country: $country, platform: WEB) {
+            monetizationType presentationType standardWebURL
+            package { id packageId clearName shortName technicalName }
+          }
         }
-        offers(country: $country, platform: WEB) {
-          monetizationType presentationType standardWebURL
-          package { id packageId clearName shortName technicalName }
+        ... on Show {
+          id objectType objectId
+          content(country: $country, language: $language) {
+            title originalTitle originalReleaseYear runtime fullPath posterUrl backdropUrl
+          }
+          offers(country: $country, platform: WEB) {
+            monetizationType presentationType standardWebURL
+            package { id packageId clearName shortName technicalName }
+          }
         }
       }
     }
@@ -35,7 +47,7 @@ query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $a
 }
 '''
 
-def post(payload, attempts=6):
+def post(payload, attempts=4):
     body = json.dumps(payload).encode("utf-8")
     for attempt in range(1, attempts + 1):
         req = request.Request(
@@ -44,7 +56,7 @@ def post(payload, attempts=6):
             headers={
                 "content-type": "application/json",
                 "accept": "application/json",
-                "user-agent": "what2watch-netflix-de-catalog-audit/1.0",
+                "user-agent": "what2watch-netflix-de-catalog-audit/1.1",
                 "origin": "https://www.justwatch.com",
                 "referer": "https://www.justwatch.com/",
             },
@@ -53,10 +65,20 @@ def post(payload, attempts=6):
         try:
             with request.urlopen(req, timeout=60) as resp:
                 return json.load(resp)
-        except (error.URLError, error.HTTPError, TimeoutError) as exc:
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:4000]
+            msg = f"HTTP {exc.code}: {detail}"
+            if 400 <= exc.code < 500:
+                raise RuntimeError(msg) from exc
+            if attempt == attempts:
+                raise RuntimeError(msg) from exc
+            delay = min(12, 2 ** attempt)
+            print(f"request failed attempt={attempt}: {msg}; retrying in {delay}s", flush=True)
+            time.sleep(delay)
+        except (error.URLError, TimeoutError) as exc:
             if attempt == attempts:
                 raise
-            delay = min(20, 2 ** attempt)
+            delay = min(12, 2 ** attempt)
             print(f"request failed attempt={attempt}: {exc}; retrying in {delay}s", flush=True)
             time.sleep(delay)
     raise RuntimeError("unreachable")
@@ -69,11 +91,10 @@ def package_matches(pkg):
         str(pkg.get("packageId") or "").lower(),
         str(pkg.get("id") or "").lower(),
     }
-    return PACKAGE in vals or "netflix" in vals
+    return PACKAGE in vals or any("netflix" in v for v in vals)
 
 def normalized(node):
     content = node.get("content") or {}
-    ext = content.get("externalIds") or {}
     offers = node.get("offers") or []
     matching = []
     for offer in offers:
@@ -89,7 +110,7 @@ def normalized(node):
         })
     return {
         "justwatch_id": node.get("id"),
-        "object_type": node.get("objectType"),
+        "object_type": node.get("objectType") or node.get("__typename"),
         "object_id": node.get("objectId"),
         "title": content.get("title"),
         "original_title": content.get("originalTitle"),
@@ -98,8 +119,6 @@ def normalized(node):
         "full_path": content.get("fullPath"),
         "poster_url": content.get("posterUrl"),
         "backdrop_url": content.get("backdropUrl"),
-        "imdb_id": ext.get("imdbId"),
-        "tmdb_id": ext.get("tmdbId"),
         "offers": matching,
         "verification": "verified" if matching else "rejected_no_exact_netflix_de_flatrate_offer",
     }
@@ -126,23 +145,24 @@ def main():
         try:
             res = post({"operationName": "ProviderCatalog", "variables": variables, "query": QUERY})
         except Exception as exc:
-            errors.append({"page": page + 1, "cursor": cursor, "error": repr(exc)})
+            errors.append({"page": page + 1, "cursor": cursor, "error": str(exc)})
             break
         if res.get("errors"):
             errors.append({"page": page + 1, "cursor": cursor, "error": res["errors"]})
             break
         conn = ((res.get("data") or {}).get("popularTitles") or {})
+        current_total = conn.get("totalCount")
         if reported_total is None:
-            reported_total = conn.get("totalCount")
-        elif conn.get("totalCount") != reported_total:
-            errors.append({"page": page + 1, "error": f"totalCount changed {reported_total} -> {conn.get('totalCount')}"})
+            reported_total = current_total
+        elif current_total != reported_total:
+            errors.append({"page": page + 1, "error": f"totalCount changed {reported_total} -> {current_total}"})
             break
         page += 1
         added = 0
         for edge in conn.get("edges") or []:
             node = edge.get("node") or {}
             key = node.get("id") or f"{node.get('objectType')}:{node.get('objectId')}"
-            if key in seen:
+            if not key or key in seen:
                 continue
             seen.add(key)
             records.append(normalized(node))
@@ -156,7 +176,7 @@ def main():
             errors.append({"page": page, "error": "pagination stalled"})
             break
         cursor = nxt
-        time.sleep(0.35)
+        time.sleep(0.30)
 
     verified = [r for r in records if r["verification"] == "verified"]
     rejected = [r for r in records if r["verification"] != "verified"]
@@ -185,8 +205,6 @@ def main():
     report = {k: v for k, v in catalog.items() if k != "records"}
     report["movie_count"] = sum(1 for r in verified if str(r.get("object_type")).upper() == "MOVIE")
     report["show_count"] = sum(1 for r in verified if str(r.get("object_type")).upper() in {"SHOW", "TV_SHOW"})
-    report["with_tmdb_id"] = sum(1 for r in verified if r.get("tmdb_id"))
-    report["with_imdb_id"] = sum(1 for r in verified if r.get("imdb_id"))
     report["with_poster"] = sum(1 for r in verified if r.get("poster_url"))
     report["with_backdrop"] = sum(1 for r in verified if r.get("backdrop_url"))
 
