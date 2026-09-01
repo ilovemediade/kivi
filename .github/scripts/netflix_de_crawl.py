@@ -13,12 +13,10 @@ MONETIZATION = "FLATRATE"
 PAGE_SIZE = 100
 
 QUERY = r'''
-query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $after: String, $filter: TitleFilter) {
-  popularTitles(country: $country, first: $first, after: $after, filter: $filter, sortBy: POPULAR) {
+query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $offset: Int!, $filter: TitleFilter) {
+  popularTitles(country: $country, first: $first, offset: $offset, filter: $filter, sortBy: POPULAR) {
     totalCount
-    pageInfo { hasNextPage endCursor }
     edges {
-      cursor
       node {
         __typename
         ... on Movie {
@@ -56,7 +54,7 @@ def post(payload, attempts=4):
             headers={
                 "content-type": "application/json",
                 "accept": "application/json",
-                "user-agent": "what2watch-netflix-de-catalog-audit/1.2",
+                "user-agent": "what2watch-netflix-de-catalog-audit/1.3",
                 "origin": "https://www.justwatch.com",
                 "referer": "https://www.justwatch.com/",
             },
@@ -126,62 +124,67 @@ def main():
     out_dir = Path("out")
     out_dir.mkdir(parents=True, exist_ok=True)
     filt = {"packages": [PACKAGE], "monetizationTypes": [MONETIZATION]}
-    cursor = None
     seen = set()
     records = []
     reported_total = None
-    page = 0
     errors = []
+    offset = 0
+    page = 0
 
     while True:
         variables = {
             "country": COUNTRY,
             "language": LANGUAGE,
             "first": PAGE_SIZE,
-            "after": cursor,
+            "offset": offset,
             "filter": filt,
         }
         try:
             res = post({"operationName": "ProviderCatalog", "variables": variables, "query": QUERY})
         except Exception as exc:
-            errors.append({"page": page + 1, "cursor": cursor, "error": str(exc)})
+            errors.append({"offset": offset, "error": str(exc)})
             break
         if res.get("errors"):
-            errors.append({"page": page + 1, "cursor": cursor, "error": res["errors"]})
+            errors.append({"offset": offset, "error": res["errors"]})
             break
         conn = ((res.get("data") or {}).get("popularTitles") or {})
         current_total = conn.get("totalCount")
         if reported_total is None:
             reported_total = current_total
         elif current_total != reported_total:
-            errors.append({"page": page + 1, "error": f"totalCount changed {reported_total} -> {current_total}"})
+            errors.append({"offset": offset, "error": f"totalCount changed {reported_total} -> {current_total}"})
+            break
+        edges = conn.get("edges") or []
+        if not edges:
+            if offset < (reported_total or 0):
+                errors.append({"offset": offset, "error": "empty page before reported_total"})
             break
         page += 1
         added = 0
-        for edge in conn.get("edges") or []:
+        duplicate_keys = []
+        for edge in edges:
             node = edge.get("node") or {}
             key = node.get("id") or f"{node.get('objectType')}:{node.get('objectId')}"
-            if not key or key in seen:
+            if not key:
+                continue
+            if key in seen:
+                duplicate_keys.append(key)
                 continue
             seen.add(key)
             records.append(normalized(node))
             added += 1
-        pi = conn.get("pageInfo") or {}
-        print(f"page={page} added={added} unique={len(records)} total={reported_total} next={bool(pi.get('hasNextPage'))}", flush=True)
-        if not pi.get("hasNextPage"):
+        print(f"page={page} offset={offset} edges={len(edges)} added={added} dup={len(duplicate_keys)} unique={len(records)} total={reported_total}", flush=True)
+        offset += len(edges)
+        if reported_total is not None and offset >= reported_total:
             break
-        nxt = pi.get("endCursor")
-        if not nxt or nxt == cursor:
-            errors.append({"page": page, "error": "pagination stalled"})
-            break
-        cursor = nxt
-        time.sleep(0.30)
+        time.sleep(0.25)
 
     verified = [r for r in records if r["verification"] == "verified"]
     rejected = [r for r in records if r["verification"] != "verified"]
     coverage_complete = (
         not errors
         and reported_total is not None
+        and offset >= reported_total
         and len(records) == reported_total
         and len(seen) == reported_total
         and len(verified) + len(rejected) == len(records)
@@ -191,6 +194,7 @@ def main():
         "provider": "Netflix",
         "region": COUNTRY,
         "source": "JustWatch public website GraphQL",
+        "pagination": "offset",
         "provider_package": PACKAGE,
         "monetization_type": MONETIZATION,
         "reported_total": reported_total,
@@ -205,6 +209,8 @@ def main():
     report["movie_count"] = sum(1 for r in verified if str(r.get("object_type")).upper() == "MOVIE")
     report["show_count"] = sum(1 for r in verified if str(r.get("object_type")).upper() in {"SHOW", "TV_SHOW"})
     report["with_poster"] = sum(1 for r in verified if r.get("poster_url"))
+    report["pages"] = page
+    report["final_offset"] = offset
 
     (out_dir / "netflix-de-catalog.json").write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
     (out_dir / "netflix-de-crawl-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
