@@ -1,0 +1,37 @@
+name: what2watch Amazon Prime DE full crawl
+
+on:
+  push:
+    branches: [what2watch-netflix-crawl]
+    paths:
+      - ".github/scripts/prime_de_crawl.py"
+      - ".github/workflows/what2watch-prime-de-crawl.yml"
+  workflow_dispatch:
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crawl complete Amazon Prime Video DE catalog
+        run: python .github/scripts/prime_de_crawl.py
+      - name: Verify report completeness
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('out-prime/prime-de-crawl-report.json',encoding='utf-8'))
+          assert r['coverage_complete'] is True, r
+          assert r['enumerated_unique']==r['reported_total']==r['verified']
+          assert r['rejected']==0
+          assert not r['errors']
+          print(r)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prime-de-full-crawl
+          path: |
+            out-prime/prime-de-catalog.json
+            out-prime/prime-de-crawl-report.json
+          if-no-files-found: error
+          retention-days: 7
