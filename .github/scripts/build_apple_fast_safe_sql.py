@@ -24,13 +24,15 @@ repls=[
 ("idx_w2w_amp_path","idx_w2w_atp_path"),
 ("idx_w2w_amp_imdb","idx_w2w_atp_imdb"),
 ("idx_w2w_amp_media","idx_w2w_atp_media"),
+("for i in range(0,len(stage),250):","for i in range(0,len(stage),100):"),
+("ch=stage[i:i+250]","ch=stage[i:i+100]"),
 ("'Amazon Prime Video','Complete Amazon Prime Video DE snapshot 2026-09-02; exact amp FLATRATE 9016/9016'","'Apple TV','Complete Apple TV DE snapshot 2026-09-02; exact atp FLATRATE 333/333'"),
 ("'justwatch-prime-de'","'justwatch-apple-tv-de'"),
 ("'Not present in complete Amazon Prime Video DE snapshot 2026-09-02'","'Not present in complete Apple TV DE snapshot 2026-09-02'"),
 ("SELECT 9016 expected_snapshot_records","SELECT 333 expected_snapshot_records"),
 ("active_prime_de_subscription_rows","active_apple_de_subscription_rows"),
 ("COUNT(*) FROM w2w_amp_20260902_stage","COUNT(*) FROM w2w_atp_20260902_stage"),
-("assert len(stmts)==71","print('APPLE_SQL_STATEMENT_COUNT',len(stmts),flush=True)\nassert len(stmts)==36"),
+("assert len(stmts)==71","assert len(stmts)==38"),
 ]
 for old,new in repls:
     if old not in src:
