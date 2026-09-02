@@ -1,0 +1,91 @@
+name: what2watch Netflix FAST SAFE SQL test
+
+on:
+  push:
+    branches: [what2watch-netflix-crawl]
+    paths:
+      - ".github/scripts/build_netflix_fast_safe_sql.py"
+      - ".github/sqltest/w2w-schema.sql"
+      - ".github/workflows/what2watch-netflix-sql-test.yml"
+  workflow_dispatch:
+
+jobs:
+  mariadb-full-import:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: w2w
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+
+      - name: Download verified 8397-record crawl artifact
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/9815654535/zip > /tmp/netflix-crawl.zip
+          mkdir -p /tmp/netflix-crawl
+          unzip -q /tmp/netflix-crawl.zip -d /tmp/netflix-crawl
+          test -s /tmp/netflix-crawl/netflix-de-catalog.json
+
+      - name: Generate FAST SAFE SQL
+        run: |
+          python .github/scripts/build_netflix_fast_safe_sql.py /tmp/netflix-crawl/netflix-de-catalog.json /tmp/netflix-fast-safe.sql
+          test -s /tmp/netflix-fast-safe.sql
+
+      - name: Create what2watch schema
+        run: |
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < .github/sqltest/w2w-schema.sql
+
+      - name: Import full 8397 snapshot - first run
+        run: |
+          start=$(date +%s)
+          mariadb --show-warnings -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/netflix-fast-safe.sql > /tmp/import1.out
+          end=$(date +%s)
+          echo "first_import_seconds=$((end-start))"
+          cat /tmp/import1.out
+
+      - name: Assert first-run data
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='netflix' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_external_ids WHERE source='justwatch-node';")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_external_ids WHERE source='justwatch';")" = "8396"
+          test "$(q "SELECT COUNT(*) FROM media_external_ids WHERE source='netflix';")" = "8393"
+          test "$(q "SELECT COUNT(*) FROM media_external_ids WHERE source='imdb';")" = "8022"
+          test "$(q "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-netflix-de' AND status='active';")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_genres;")" = "22102"
+          test "$(q "SELECT COUNT(*) FROM media_assets WHERE asset_type='poster' AND removed_at IS NULL;")" = "8382"
+
+      - name: Import full snapshot again - idempotency run
+        run: |
+          start=$(date +%s)
+          mariadb --show-warnings -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/netflix-fast-safe.sql > /tmp/import2.out
+          end=$(date +%s)
+          echo "second_import_seconds=$((end-start))"
+          cat /tmp/import2.out
+
+      - name: Assert idempotency
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='netflix' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_external_ids WHERE source='justwatch-node';")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-netflix-de' AND status='active';")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_assets WHERE asset_type='poster' AND removed_at IS NULL;")" = "8382"
+          test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='w2w' AND table_name LIKE 'w2w_nfx_20260902_%';")" = "0"
