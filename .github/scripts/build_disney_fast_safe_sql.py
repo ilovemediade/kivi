@@ -25,7 +25,7 @@ repls=[
 ("idx_w2w_amp_imdb","idx_w2w_dnp_imdb"),
 ("idx_w2w_amp_media","idx_w2w_dnp_media"),
 ("'Amazon Prime Video','Complete Amazon Prime Video DE snapshot 2026-09-02; exact amp FLATRATE 9016/9016'","'Disney Plus','Complete Disney+ DE snapshot 2026-09-02; exact dnp FLATRATE 3545/3545'"),
-("'justwatch-prime-de'","'justwatch-disney-de'"),
+("'justwatch-prime-de'","'justwatch-disney-plus-de'"),
 ("'Not present in complete Amazon Prime Video DE snapshot 2026-09-02'","'Not present in complete Disney+ DE snapshot 2026-09-02'"),
 ("SELECT 9016 expected_snapshot_records","SELECT 3545 expected_snapshot_records"),
 ("active_prime_de_subscription_rows","active_disney_de_subscription_rows"),
