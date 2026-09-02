@@ -1,0 +1,98 @@
+name: what2watch Apple TV FINAL validated artifact
+
+on:
+  push:
+    branches: [what2watch-netflix-crawl]
+    paths:
+      - ".github/workflows/what2watch-apple-final-publish.yml"
+  workflow_dispatch:
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: w2w
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+
+      - name: Download verified full-crawl artifacts
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/9815654535/zip > /tmp/netflix.zip
+          mkdir -p /tmp/netflix && unzip -q /tmp/netflix.zip -d /tmp/netflix
+          gh api repos/${{ github.repository }}/actions/artifacts/9835252384/zip > /tmp/prime.zip
+          mkdir -p /tmp/prime && unzip -q /tmp/prime.zip -d /tmp/prime
+          gh api repos/${{ github.repository }}/actions/artifacts/9836196033/zip > /tmp/disney.zip
+          mkdir -p /tmp/disney && unzip -q /tmp/disney.zip -d /tmp/disney
+          gh api repos/${{ github.repository }}/actions/artifacts/9843845089/zip > /tmp/apple.zip
+          mkdir -p /tmp/apple && unzip -q /tmp/apple.zip -d /tmp/apple
+
+      - name: Generate exact SQL files
+        run: |
+          python .github/scripts/build_netflix_fast_safe_sql.py /tmp/netflix/netflix-de-catalog.json /tmp/netflix.sql
+          python .github/scripts/build_prime_fast_safe_sql.py /tmp/prime/prime-de-catalog.json /tmp/prime.sql
+          python .github/scripts/build_disney_fast_safe_sql.py /tmp/disney/disney-de-catalog.json /tmp/disney.sql
+          python .github/scripts/build_apple_fast_safe_sql.py /tmp/apple/apple-tv-de-catalog.json /tmp/apple.sql
+          test -s /tmp/apple.sql.gz
+          gzip -t /tmp/apple.sql.gz
+          gzip -dc /tmp/apple.sql.gz | cmp -s - /tmp/apple.sql
+          sha256sum /tmp/apple.sql.gz
+
+      - name: Create what2watch schema and three-provider baseline
+        run: |
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < .github/sqltest/w2w-schema.sql
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/netflix.sql > /tmp/netflix.out
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/prime.sql > /tmp/prime.out
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/disney.sql > /tmp/disney.out
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e 'SELECT COUNT(*) FROM media;')" = "20272"
+
+      - name: Import exact Apple SQL - first run
+        run: |
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/apple.sql > /tmp/apple1.out 2> /tmp/apple1.err
+          cat /tmp/apple1.out
+          cat /tmp/apple1.err
+          ! grep -E "ERROR|Warning \(Code 1062\)" /tmp/apple1.err
+          grep -Pq '^333\t333\t333\t333\t328\t5\t0$' /tmp/apple1.out
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e 'SELECT COUNT(*) FROM media;')" = "20600"
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='apple' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "333"
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "SELECT external_id FROM provider_external_ids pei JOIN providers p ON p.id=pei.provider_id WHERE p.slug='apple' AND pei.source='justwatch';")" = "atp"
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-apple-tv-de' AND status='active';")" = "333"
+
+      - name: Import exact Apple SQL - idempotency run
+        run: |
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/apple.sql > /tmp/apple2.out 2> /tmp/apple2.err
+          cat /tmp/apple2.out
+          cat /tmp/apple2.err
+          ! grep -E "ERROR|Warning \(Code 1062\)" /tmp/apple2.err
+          grep -Pq '^333\t333\t333\t333\t0\t333\t0$' /tmp/apple2.out
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e 'SELECT COUNT(*) FROM media;')" = "20600"
+          test "$(mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='w2w' AND table_name='w2w_atp_20260902_stage';")" = "0"
+
+      - name: Prepare validated artifact
+        run: |
+          cp /tmp/apple.sql.gz what2watch-apple-tv-de-333-FINAL-VALIDATED.sql.gz
+          sha256sum what2watch-apple-tv-de-333-FINAL-VALIDATED.sql.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: what2watch-apple-tv-de-333-final-validated
+          path: what2watch-apple-tv-de-333-FINAL-VALIDATED.sql.gz
+          if-no-files-found: error
+          retention-days: 7
