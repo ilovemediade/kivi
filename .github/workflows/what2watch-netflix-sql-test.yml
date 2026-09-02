@@ -7,6 +7,12 @@ on:
       - ".github/scripts/build_netflix_fast_safe_sql.py"
       - ".github/sqltest/w2w-schema.sql"
       - ".github/workflows/what2watch-netflix-sql-test.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - ".github/scripts/build_netflix_fast_safe_sql.py"
+      - ".github/sqltest/w2w-schema.sql"
+      - ".github/workflows/what2watch-netflix-sql-test.yml"
   workflow_dispatch:
 
 jobs:
