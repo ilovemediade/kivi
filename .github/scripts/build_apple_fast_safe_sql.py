@@ -30,7 +30,7 @@ repls=[
 ("SELECT 9016 expected_snapshot_records","SELECT 333 expected_snapshot_records"),
 ("active_prime_de_subscription_rows","active_apple_de_subscription_rows"),
 ("COUNT(*) FROM w2w_amp_20260902_stage","COUNT(*) FROM w2w_atp_20260902_stage"),
-("assert len(stmts)==71","assert len(stmts)==36"),
+("assert len(stmts)==71","print('APPLE_SQL_STATEMENT_COUNT',len(stmts),flush=True)\nassert len(stmts)==36"),
 ]
 for old,new in repls:
     if old not in src:
