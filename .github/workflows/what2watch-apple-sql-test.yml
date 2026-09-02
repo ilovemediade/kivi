@@ -1,0 +1,135 @@
+name: what2watch Apple TV FAST SAFE SQL test
+
+on:
+  push:
+    branches: [what2watch-netflix-crawl]
+    paths:
+      - ".github/scripts/build_apple_fast_safe_sql.py"
+      - ".github/workflows/what2watch-apple-sql-test.yml"
+  workflow_dispatch:
+
+jobs:
+  mariadb-four-provider-import:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: w2w
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+
+      - name: Download verified provider crawl artifacts
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/9815654535/zip > /tmp/netflix.zip
+          mkdir -p /tmp/netflix && unzip -q /tmp/netflix.zip -d /tmp/netflix
+          gh api repos/${{ github.repository }}/actions/artifacts/9835252384/zip > /tmp/prime.zip
+          mkdir -p /tmp/prime && unzip -q /tmp/prime.zip -d /tmp/prime
+          gh api repos/${{ github.repository }}/actions/artifacts/9836196033/zip > /tmp/disney.zip
+          mkdir -p /tmp/disney && unzip -q /tmp/disney.zip -d /tmp/disney
+          gh api repos/${{ github.repository }}/actions/artifacts/9843845089/zip > /tmp/apple.zip
+          mkdir -p /tmp/apple && unzip -q /tmp/apple.zip -d /tmp/apple
+          test -s /tmp/netflix/netflix-de-catalog.json
+          test -s /tmp/prime/prime-de-catalog.json
+          test -s /tmp/disney/disney-de-catalog.json
+          test -s /tmp/apple/apple-tv-de-catalog.json
+
+      - name: Generate four SQL imports and verify catalog overlaps
+        run: |
+          python .github/scripts/build_netflix_fast_safe_sql.py /tmp/netflix/netflix-de-catalog.json /tmp/netflix.sql
+          python .github/scripts/build_prime_fast_safe_sql.py /tmp/prime/prime-de-catalog.json /tmp/prime.sql
+          python .github/scripts/build_disney_fast_safe_sql.py /tmp/disney/disney-de-catalog.json /tmp/disney.sql
+          python .github/scripts/build_apple_fast_safe_sql.py /tmp/apple/apple-tv-de-catalog.json /tmp/apple.sql
+          python - <<'PY'
+          import json
+          n=json.load(open('/tmp/netflix/netflix-de-catalog.json',encoding='utf-8'))['records']
+          p=json.load(open('/tmp/prime/prime-de-catalog.json',encoding='utf-8'))['records']
+          d=json.load(open('/tmp/disney/disney-de-catalog.json',encoding='utf-8'))['records']
+          a=json.load(open('/tmp/apple/apple-tv-de-catalog.json',encoding='utf-8'))['records']
+          ni={x['justwatch_id'] for x in n}; pi={x['justwatch_id'] for x in p}; di={x['justwatch_id'] for x in d}; ai={x['justwatch_id'] for x in a}
+          assert (len(ni),len(pi),len(di),len(ai))==(8397,9016,3545,333)
+          assert len(ni|pi|di)==20272
+          assert len(ai & ni)==3
+          assert len(ai & pi)==2
+          assert len(ai & di)==3
+          assert len(ai & (ni|pi|di))==5
+          assert len(ai-(ni|pi|di))==328
+          assert len(ai & ni & pi & di)==1
+          assert len(ni|pi|di|ai)==20600
+          print({'netflix':len(ni),'prime':len(pi),'disney':len(di),'apple':len(ai),'apple_netflix':len(ai&ni),'apple_prime':len(ai&pi),'apple_disney':len(ai&di),'apple_existing':len(ai&(ni|pi|di)),'apple_new':len(ai-(ni|pi|di)),'all_four':len(ai&ni&pi&di),'canonical_union':len(ni|pi|di|ai)})
+          PY
+
+      - name: Create what2watch schema
+        run: mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < .github/sqltest/w2w-schema.sql
+
+      - name: Import Netflix Prime and Disney baseline
+        run: |
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/netflix.sql > /tmp/netflix.out
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/prime.sql > /tmp/prime.out
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/disney.sql > /tmp/disney.out
+
+      - name: Assert three-provider baseline
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "20272"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='netflix' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='prime' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "9016"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='disney' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "3545"
+
+      - name: Import complete Apple TV snapshot - first run
+        run: |
+          start=$(date +%s)
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/apple.sql > /tmp/apple1.out 2> /tmp/apple1.err
+          end=$(date +%s)
+          echo "apple_first_import_seconds=$((end-start))"
+          cat /tmp/apple1.out
+          cat /tmp/apple1.err
+          ! grep -E "ERROR|Warning \(Code 1062\)" /tmp/apple1.err
+          grep -Pq '^333\t333\t333\t333\t328\t5\t0$' /tmp/apple1.out
+
+      - name: Assert first Apple import and four-provider dedupe
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "20600"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='apple' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "333"
+          test "$(q "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-apple-tv-de' AND status='active';")" = "333"
+          test "$(q "SELECT external_id FROM provider_external_ids pei JOIN providers p ON p.id=pei.provider_id WHERE p.slug='apple' AND pei.source='justwatch';")" = "atp"
+          test "$(q "SELECT COUNT(*) FROM (SELECT av.media_id FROM media_availability av JOIN providers p ON p.id=av.provider_id WHERE p.slug IN ('apple','netflix') AND av.country_code='DE' AND av.offer_type='subscription' AND av.removed_at IS NULL GROUP BY av.media_id HAVING COUNT(DISTINCT p.slug)=2) x;")" = "3"
+          test "$(q "SELECT COUNT(*) FROM (SELECT av.media_id FROM media_availability av JOIN providers p ON p.id=av.provider_id WHERE p.slug IN ('apple','prime') AND av.country_code='DE' AND av.offer_type='subscription' AND av.removed_at IS NULL GROUP BY av.media_id HAVING COUNT(DISTINCT p.slug)=2) x;")" = "2"
+          test "$(q "SELECT COUNT(*) FROM (SELECT av.media_id FROM media_availability av JOIN providers p ON p.id=av.provider_id WHERE p.slug IN ('apple','disney') AND av.country_code='DE' AND av.offer_type='subscription' AND av.removed_at IS NULL GROUP BY av.media_id HAVING COUNT(DISTINCT p.slug)=2) x;")" = "3"
+          test "$(q "SELECT COUNT(*) FROM (SELECT av.media_id FROM media_availability av JOIN providers p ON p.id=av.provider_id WHERE p.slug IN ('apple','netflix','prime','disney') AND av.country_code='DE' AND av.offer_type='subscription' AND av.removed_at IS NULL GROUP BY av.media_id HAVING COUNT(DISTINCT p.slug)=4) x;")" = "1"
+          test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='w2w' AND table_name='w2w_atp_20260902_stage';")" = "0"
+
+      - name: Import Apple TV snapshot again - idempotency run
+        run: |
+          start=$(date +%s)
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/apple.sql > /tmp/apple2.out 2> /tmp/apple2.err
+          end=$(date +%s)
+          echo "apple_second_import_seconds=$((end-start))"
+          cat /tmp/apple2.out
+          cat /tmp/apple2.err
+          ! grep -E "ERROR|Warning \(Code 1062\)" /tmp/apple2.err
+          grep -Pq '^333\t333\t333\t333\t0\t333\t0$' /tmp/apple2.out
+
+      - name: Assert Apple idempotency
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "20600"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='apple' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "333"
+          test "$(q "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-apple-tv-de' AND status='active';")" = "333"
+          test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='w2w' AND table_name='w2w_atp_20260902_stage';")" = "0"
