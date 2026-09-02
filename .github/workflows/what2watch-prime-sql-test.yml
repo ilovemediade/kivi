@@ -1,0 +1,110 @@
+name: what2watch Prime FAST SAFE SQL test
+
+on:
+  push:
+    branches: [what2watch-netflix-crawl]
+    paths:
+      - ".github/scripts/build_prime_fast_safe_sql.py"
+      - ".github/workflows/what2watch-prime-sql-test.yml"
+  workflow_dispatch:
+
+jobs:
+  mariadb-cross-provider-import:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: w2w
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+
+      - name: Download verified Netflix and Prime crawl artifacts
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/9815654535/zip > /tmp/netflix.zip
+          mkdir -p /tmp/netflix && unzip -q /tmp/netflix.zip -d /tmp/netflix
+          gh api repos/${{ github.repository }}/actions/artifacts/9835252384/zip > /tmp/prime.zip
+          mkdir -p /tmp/prime && unzip -q /tmp/prime.zip -d /tmp/prime
+          test -s /tmp/netflix/netflix-de-catalog.json
+          test -s /tmp/prime/prime-de-catalog.json
+
+      - name: Generate both SQL imports and verify catalog overlap
+        run: |
+          python .github/scripts/build_netflix_fast_safe_sql.py /tmp/netflix/netflix-de-catalog.json /tmp/netflix.sql
+          python .github/scripts/build_prime_fast_safe_sql.py /tmp/prime/prime-de-catalog.json /tmp/prime.sql
+          python - <<'PY'
+          import json
+          n=json.load(open('/tmp/netflix/netflix-de-catalog.json',encoding='utf-8'))['records']
+          p=json.load(open('/tmp/prime/prime-de-catalog.json',encoding='utf-8'))['records']
+          ni={x['justwatch_id'] for x in n}; pi={x['justwatch_id'] for x in p}
+          assert len(ni)==8397 and len(pi)==9016
+          assert len(ni & pi)==209
+          assert len(ni | pi)==17204
+          print({'netflix':len(ni),'prime':len(pi),'overlap':len(ni&pi),'canonical_union':len(ni|pi)})
+          PY
+
+      - name: Create what2watch schema
+        run: mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < .github/sqltest/w2w-schema.sql
+
+      - name: Import Netflix baseline
+        run: mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/netflix.sql > /tmp/netflix.out
+
+      - name: Assert Netflix baseline
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "8397"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='netflix' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "8397"
+
+      - name: Import complete Prime snapshot - first run
+        run: |
+          start=$(date +%s)
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/prime.sql > /tmp/prime1.out 2> /tmp/prime1.err
+          end=$(date +%s)
+          echo "prime_first_import_seconds=$((end-start))"
+          cat /tmp/prime1.out
+          cat /tmp/prime1.err
+          ! grep -E "ERROR|Warning \(Code 1062\)" /tmp/prime1.err
+
+      - name: Assert first Prime import and cross-provider dedupe
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "17204"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='prime' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "9016"
+          test "$(q "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-prime-de' AND status='active';")" = "9016"
+          test "$(q "SELECT COUNT(*) FROM media_external_ids WHERE source='justwatch-node';")" = "17204"
+          test "$(q "SELECT COUNT(*) FROM (SELECT a.media_id FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug IN ('netflix','prime') AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL GROUP BY a.media_id HAVING COUNT(DISTINCT p.slug)=2) x;")" = "209"
+          test "$(q "SELECT external_id FROM provider_external_ids pei JOIN providers p ON p.id=pei.provider_id WHERE p.slug='prime' AND pei.source='justwatch';")" = "amp"
+          test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='w2w' AND table_name='w2w_amp_20260902_stage';")" = "0"
+
+      - name: Import Prime snapshot again - idempotency run
+        run: |
+          start=$(date +%s)
+          mariadb -h127.0.0.1 -P3306 -uroot -proot w2w < /tmp/prime.sql > /tmp/prime2.out 2> /tmp/prime2.err
+          end=$(date +%s)
+          echo "prime_second_import_seconds=$((end-start))"
+          cat /tmp/prime2.out
+          cat /tmp/prime2.err
+          ! grep -E "ERROR|Warning \(Code 1062\)" /tmp/prime2.err
+
+      - name: Assert Prime idempotency
+        run: |
+          q() { mariadb -N -B -h127.0.0.1 -P3306 -uroot -proot w2w -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM media;")" = "17204"
+          test "$(q "SELECT COUNT(*) FROM media_availability a JOIN providers p ON p.id=a.provider_id WHERE p.slug='prime' AND a.country_code='DE' AND a.offer_type='subscription' AND a.removed_at IS NULL;")" = "9016"
+          test "$(q "SELECT COUNT(*) FROM media_source_records WHERE source='justwatch-prime-de' AND status='active';")" = "9016"
+          test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='w2w' AND table_name='w2w_amp_20260902_stage';")" = "0"
