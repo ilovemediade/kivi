@@ -1,0 +1,41 @@
+name: what2watch rating detail enrichment
+
+on:
+  push:
+    branches: [what2watch-netflix-crawl]
+    paths:
+      - ".github/data/rating_ids_480.json"
+      - ".github/scripts/rating_detail_enrich.py"
+      - ".github/workflows/what2watch-rating-detail-enrich.yml"
+  workflow_dispatch:
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch title-specific JustWatch metadata
+        run: python .github/scripts/rating_detail_enrich.py
+      - name: Validate enrichment
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('out-rating-enrich/rating-details-480.json',encoding='utf-8'))
+          r=d['report']; rows=d['records']
+          assert r['requested']==480
+          assert r['returned']==480
+          assert r['unique_returned']==480
+          assert not r['missing'] and not r['errors']
+          assert len(rows)==480
+          assert len({x['justwatch_id'] for x in rows})==480
+          print(r)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: what2watch-rating-details-480
+          path: |
+            out-rating-enrich/rating-details-480.json
+            out-rating-enrich/rating-details-report.json
+          if-no-files-found: error
+          retention-days: 7
