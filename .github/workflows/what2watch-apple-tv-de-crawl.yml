@@ -1,4 +1,5 @@
 name: what2watch Apple TV DE full crawl
+# Manual full recrawl + immediate validation requested 2026-09-02
 
 on:
   push:
