@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib import request, error
 
 ENDPOINT='https://apis.justwatch.com/graphql'
-COUNTRY='DE'; LANGUAGE='de'; PACKAGE='prv'; MONETIZATION='FLATRATE'
+COUNTRY='DE'; LANGUAGE='de'; PACKAGE=None; PACKAGE_META=None; MONETIZATION='FLATRATE'
 PAGE_SIZE=100; HARD_WINDOW=1900
 QUERY=r'''
 query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $offset: Int!, $filter: TitleFilter) {
@@ -17,13 +17,18 @@ query ProviderCatalog($country: Country!, $language: Language!, $first: Int!, $o
   }
 }
 '''
+PACKAGES_QUERY=r'''
+query Packages($country: Country!) {
+  packages(country:$country, platform:WEB) { id packageId clearName shortName technicalName }
+}
+'''
 
-def post(variables, attempts=8):
-    body=json.dumps({'operationName':'ProviderCatalog','variables':variables,'query':QUERY}).encode()
+def post(variables, attempts=8, query=QUERY, operation='ProviderCatalog'):
+    body=json.dumps({'operationName':operation,'variables':variables,'query':query}).encode()
     for n in range(1,attempts+1):
         req=request.Request(ENDPOINT,data=body,headers={
             'content-type':'application/json','accept':'application/json',
-            'user-agent':'what2watch-prime-de/partition-2.0',
+            'user-agent':'what2watch-prime-de/partition-2.1',
             'origin':'https://www.justwatch.com','referer':'https://www.justwatch.com/'},method='POST')
         try:
             with request.urlopen(req,timeout=60) as r: return json.load(r)
@@ -38,14 +43,37 @@ def post(variables, attempts=8):
             time.sleep(min(30,2**n))
     raise RuntimeError('request attempts exhausted')
 
+def detect_prime_package():
+    res=post({'country':COUNTRY},query=PACKAGES_QUERY,operation='Packages')
+    if res.get('errors'): raise RuntimeError(json.dumps(res['errors'],ensure_ascii=False))
+    packages=(res.get('data') or {}).get('packages') or []
+    cand=[]
+    for p in packages:
+        name=str(p.get('clearName') or '').strip().lower()
+        tech=str(p.get('technicalName') or '').strip().lower()
+        if name=='amazon prime video' or tech=='amazon prime video' or ('amazon prime video' in name and 'channel' not in name):
+            cand.append(p)
+    print('PRIME_PACKAGE_CANDIDATES '+json.dumps(cand,ensure_ascii=False),flush=True)
+    exact=[p for p in cand if str(p.get('clearName') or '').strip().lower()=='amazon prime video']
+    chosen=(exact or cand)
+    if len(chosen)!=1:
+        raise RuntimeError(f'Could not uniquely resolve Amazon Prime Video DE package: {chosen}')
+    p=chosen[0]
+    code=str(p.get('shortName') or '').strip()
+    if not code: raise RuntimeError(f'Prime package has no shortName: {p}')
+    return code,p
+
 def base_filter(extra=None):
+    if not PACKAGE: raise RuntimeError('Prime package not initialized')
     f={'packages':[PACKAGE],'monetizationTypes':[MONETIZATION]}
     if extra: f.update(extra)
     return f
 
 def package_matches(pkg):
-    vals=[str(pkg.get(k) or '').lower() for k in ('shortName','technicalName','clearName','packageId','id')]
-    return PACKAGE in vals or any(('amazon prime' in x or x=='prime video') for x in vals)
+    if not PACKAGE_META: return False
+    short=str(pkg.get('shortName') or '').strip().lower()
+    name=str(pkg.get('clearName') or '').strip().lower()
+    return short==str(PACKAGE).lower() or name==str(PACKAGE_META.get('clearName') or '').strip().lower()
 
 def norm(node):
     c=node.get('content') or {}; ex=c.get('externalIds') or {}; offers=[]
@@ -66,10 +94,10 @@ def fetch_page(filt,offset):
 
 def save(out,target,rows,seen,errors,stats,genres,final=False):
     records=list(rows.values()); verified=[r for r in records if r['verification']=='verified']; rejected=[r for r in records if r['verification']!='verified']
-    coverage=final and len(seen)==target and len(records)==target and len(verified)==target and not rejected and not errors
+    coverage=final and target>8000 and len(seen)==target and len(records)==target and len(verified)==target and not rejected and not errors
     report={
-        'provider':'Amazon Prime Video','region':'DE','scope':'Prime membership included / JustWatch prv FLATRATE only',
-        'source':'JustWatch public website GraphQL','reported_total':target,'enumerated_unique':len(records),'verified':len(verified),'rejected':len(rejected),
+        'provider':'Amazon Prime Video','region':'DE','scope':f'Prime membership included / JustWatch {PACKAGE} FLATRATE only',
+        'justwatch_package':PACKAGE_META,'source':'JustWatch public website GraphQL','reported_total':target,'enumerated_unique':len(records),'verified':len(verified),'rejected':len(rejected),
         'coverage_complete':coverage,'genre_codes':sorted(genres),'errors':errors,'partition_stats':stats,
         'movie_count':sum(r['object_type']=='MOVIE' for r in verified),'show_count':sum(r['object_type']=='SHOW' for r in verified),
         'with_imdb_id':sum(bool(r.get('imdb_id')) for r in verified),'with_poster':sum(bool(r.get('poster_url')) for r in verified)
@@ -103,12 +131,14 @@ def crawl_partition(name,filt,rows,seen,errors,stats,out,target,genres):
     return total,ok
 
 def main():
+    global PACKAGE,PACKAGE_META
     out=Path('out-prime'); out.mkdir(exist_ok=True); rows={}; seen=set(); errors=[]; stats=[]; genres=set()
+    PACKAGE,PACKAGE_META=detect_prime_package()
+    print(f'PRIME_PACKAGE {PACKAGE} {PACKAGE_META.get("clearName")}',flush=True)
     baseline=fetch_page(base_filter(),0); target=baseline.get('totalCount')
-    if not target: raise SystemExit('no target total')
+    if not target or target<=8000: raise SystemExit(f'implausible Prime DE target total: {target} package={PACKAGE_META}')
     print(f'TARGET {target}',flush=True)
 
-    # Baseline public window also discovers genre vocabulary and captures no-year records near the top.
     offset=0
     while offset<HARD_WINDOW and offset<target:
         conn=baseline if offset==0 else fetch_page(base_filter(),offset); edges=conn.get('edges') or []
@@ -120,10 +150,8 @@ def main():
         offset+=len(edges); time.sleep(.28)
     print('GENRES '+','.join(sorted(genres)),flush=True)
 
-    # Shows currently fit below the API window; movies are deterministically split by release-year bands.
     crawl_partition('SHOW:all',base_filter({'objectTypes':['SHOW']}),rows,seen,errors,stats,out,target,genres)
 
-    # 5-year bands are intentionally small; if any band grows above the hard window, split to single years.
     current=2026
     for start in range(1800,current+1,5):
         end=min(current,start+4)
@@ -133,7 +161,6 @@ def main():
             for y in range(start,end+1):
                 crawl_partition(f'MOVIE:year:{y}',base_filter({'objectTypes':['MOVIE'],'releaseYear':{'min':y,'max':y}}),rows,seen,errors,stats,out,target,genres)
 
-    # Fallback for null-year / edge cases: enumerate every safe type×genre partition plus no-known-genre complement.
     if len(seen)!=target:
         print(f'YEAR_UNION_GAP target={target} seen={len(seen)} gap={target-len(seen)} -> genre fallback',flush=True)
         for typ in ('MOVIE','SHOW'):
